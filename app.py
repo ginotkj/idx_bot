@@ -6,7 +6,7 @@ import pandas_ta as ta
 # --- UI CONFIGURATION ---
 st.set_page_config(page_title="IDX Insight Engine 2026", layout="wide")
 
-# 1. LANGUAGE DATA
+# LANGUAGE DATA
 lang_data = {
     "English": {
         "title": "🏛️ IDX Insight Engine",
@@ -33,7 +33,6 @@ lang_data = {
 selected_lang = st.sidebar.selectbox("Language / Bahasa", ["English", "Bahasa Indonesia"])
 L = lang_data[selected_lang]
 
-# 2026 Industry Benchmarks [P/E, ROE, D/E]
 INDUSTRY_AVGS = {
     "Financial": [15.8, 14.5, 0.95], "Technology": [35.2, 5.0, 0.40],
     "Energy": [8.5, 18.2, 0.70], "Consumer Defensive": [14.2, 16.5, 0.82],
@@ -43,23 +42,28 @@ INDUSTRY_AVGS = {
 def get_pro_data(symbol):
     try:
         ticker = yf.Ticker(symbol)
+        # Fetching 1y data
         df = ticker.history(period="1y")
-        if df.empty: return None, None, None, None, None
-        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
         
-        # Technicals
+        if df.empty:
+            return "NO_DATA", None, None, None, None
+            
+        if isinstance(df.columns, pd.MultiIndex): 
+            df.columns = df.columns.get_level_values(0)
+        
+        # Calculate Indicators
         df.ta.rsi(append=True)
         df.ta.sma(length=50, append=True)
         rsi_c = [c for c in df.columns if 'RSI' in str(c)][0]
         sma_c = [c for c in df.columns if 'SMA_50' in str(c)][0]
         
-        # Foreign Sentiment Proxy (Price-Volume Correlation)
+        # Foreign Sentiment Proxy
         df['Vol_Sentiment'] = (df['Close'] - df['Open']) * df['Volume']
-        recent_sentiment = df['Vol_Sentiment'].tail(5).sum()
-        f_flow = "Accumulation 🟢" if recent_sentiment > 0 else "Distribution 🔴"
+        f_flow = "Accumulation 🟢" if df['Vol_Sentiment'].tail(5).sum() > 0 else "Distribution 🔴"
         
         return df, ticker.info, rsi_c, sma_c, f_flow
-    except: return None, None, None, None, None
+    except Exception as e:
+        return str(e), None, None, None, None
 
 st.title(L["title"])
 input_symbols = st.sidebar.text_input(L["symbol_label"], "BBCA, BMRI, TLKM, ASII, ADRO")
@@ -67,15 +71,28 @@ has_position = st.sidebar.toggle("I already own these stocks", value=False)
 analyze_btn = st.sidebar.button("Run Deep Analysis")
 
 if analyze_btn:
-    symbols = [s if s.endswith('.JK') else f"{s.strip().upper()}.JK" for s in input_symbols.split(',')]
+    # ROBUST TICKER CLEANUP
+    raw_list = input_symbols.split(',')
+    symbols = []
+    for s in raw_list:
+        clean_s = s.strip().upper()
+        if not clean_s.endswith('.JK'):
+            clean_s += '.JK'
+        symbols.append(clean_s)
+
     summary_list, full_reports = [], []
 
     for symbol in symbols:
-        df, info, rsi_c, sma_c, f_flow = get_pro_data(symbol)
-        if df is None: continue
+        result, info, rsi_c, sma_c, f_flow = get_pro_data(symbol)
+        
+        # HANDLING ERRORS VISIBLY
+        if isinstance(result, str):
+            st.warning(f"⚠️ {symbol}: {result if result != 'NO_DATA' else 'No data found (check symbol or market holiday)'}")
+            continue
+            
+        df = result
         price, rsi_val, sma_val = df.iloc[-1]['Close'], df.iloc[-1][rsi_c], df.iloc[-1][sma_c]
         
-        # Decision Logic
         if rsi_val < 35: rec = "BUY 🚀"
         elif rsi_val > 65: rec = "SELL 📉"
         else: rec = "HOLD ✅" if has_position else L["wait_msg"]
@@ -83,7 +100,6 @@ if analyze_btn:
         sector = info.get('sector', 'Default')
         sector_key = next((k for k in INDUSTRY_AVGS if k in sector), "Default")
         
-        # RESTORED PREVIOUS SUMMARY FORMAT
         row = {
             "Stock": symbol.replace(".JK", ""), 
             "Price": f"{price:,.0f}", 
@@ -93,44 +109,33 @@ if analyze_btn:
         }
         if not has_position: row[L["buy_col"]] = f"{min(sma_val, price*0.97):,.0f}"
         summary_list.append(row)
-        
-        full_reports.append({
-            "symbol": symbol, "info": info, "rsi": rsi_val, "price": price, 
-            "sma": sma_val, "rec": rec, "sector": sector, 
-            "bench": INDUSTRY_AVGS[sector_key], "f_flow": f_flow
-        })
+        full_reports.append({"symbol": symbol, "info": info, "rsi": rsi_val, "price": price, "sma": sma_val, "rec": rec, "sector": sector, "bench": INDUSTRY_AVGS[sector_key], "f_flow": f_flow})
 
-    # 1. SUMMARY SNAPSHOT (Restored Table)
-    st.subheader(L["summary"])
-    st.dataframe(pd.DataFrame(summary_list), use_container_width=True, hide_index=True)
-    st.divider()
+    if summary_list:
+        st.subheader(L["summary"])
+        st.dataframe(pd.DataFrame(summary_list), use_container_width=True, hide_index=True)
+        st.divider()
 
-    # 2. DEEP DIVE ANALYSIS
-    for r in full_reports:
-        st.subheader(f"🔍 {r['symbol']} ({r['sector']})")
-        cols = st.columns(2) 
-        with cols[0]:
-            with st.container(border=True):
-                st.markdown(f"### 📈 {L['tech_header']}")
-                st.write(f"**RSI (14):** {r['rsi']:.2f}")
-                st.write(f"**Trend (SMA 50):** {'Bullish 🔼' if r['price'] > r['sma'] else 'Bearish 🔽'}")
-                st.write(f"**Foreign Flow:** {r['f_flow']}")
-                st.info(f"Verdict: **{r['rec']}**")
-        with cols[1]:
-            with st.container(border=True):
-                st.markdown(f"### 🏢 {L['fund_header']}")
-                pe, roe = r['info'].get('trailingPE', 0), (r['info'].get('returnOnEquity', 0) or 0) * 100
-                de = (r['info'].get('debtToEquity', 0) or 0) / 100
-                st.write(f"**P/E Ratio:** {pe:.1f}x (Avg: {r['bench'][0]}x)")
-                st.write(f"**ROE:** {roe:.1f}% (Avg: {r['bench'][1]}%)")
-                st.write(f"**D/E Ratio:** {de:.2f} (Avg: {r['bench'][2]})")
-                st.success(f"**Quality:** {'Elite 💪' if roe > r['bench'][1] and pe < r['bench'][0] else 'Standard'}")
+        for r in full_reports:
+            st.subheader(f"🔍 {r['symbol']} ({r['sector']})")
+            cols = st.columns(2) 
+            with cols[0]:
+                with st.container(border=True):
+                    st.markdown(f"### 📈 {L['tech_header']}")
+                    st.write(f"**RSI (14):** {r['rsi']:.2f}")
+                    st.write(f"**Trend:** {'Bullish 🔼' if r['price'] > r['sma'] else 'Bearish 🔽'}")
+                    st.write(f"**Foreign Flow:** {r['f_flow']}")
+                    st.info(f"Verdict: **{r['rec']}**")
+            with cols[1]:
+                with st.container(border=True):
+                    st.markdown(f"### 🏢 {L['fund_header']}")
+                    pe, roe = r['info'].get('trailingPE', 0), (r['info'].get('returnOnEquity', 0) or 0) * 100
+                    st.write(f"**P/E Ratio:** {pe:.1f}x (Avg: {r['bench'][0]}x)")
+                    st.write(f"**ROE:** {roe:.1f}% (Avg: {r['bench'][1]}%)")
+                    st.success(f"**Quality:** {'Elite 💪' if roe > r['bench'][1] else 'Standard'}")
+    else:
+        st.error("No valid data could be retrieved for the symbols provided.")
 
-    # 3. ANALYSIS METHODOLOGY
     with st.expander(L["logic_header"], expanded=True):
-        st.markdown(f"""
-        ### 📊 Indicators & Calculations
-        * **RSI (14):** Momentum indicator. We identify support at $<35$ and resistance at $>65$.
-        * **SMA 50:** Calculated as the average closing price over 50 days. It serves as the "Fair Value" floor for dip buying.
-        * **Foreign Flow Estimate:** Uses Volume-Price Trend (VPT) principles. Net positive volume on green days signals **Accumulation**, a key proxy for institutional/foreign entry in IDX stocks.
-        """)
+        st.markdown("### 📊 Methodology Summary")
+        st.write("Calculations are based on 1-year historical data from Yahoo Finance.")
