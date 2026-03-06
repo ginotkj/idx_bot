@@ -56,11 +56,11 @@ selected_lang = st.sidebar.selectbox("Language / Bahasa", ["English", "Bahasa In
 L = lang_data[selected_lang]
 
 st.title(L["title"])
-input_symbols = st.sidebar.text_input("Symbols", "BBCA, BMRI, TLKM, ASII, ADRO")
+input_symbols = st.sidebar.text_input("Symbols", "BBCA, BMRI, TLKM, ASII, ADRO, ANTM")
 analyze_btn = st.sidebar.button("Run Deep Analysis")
 
 if analyze_btn:
-    with st.spinner('Calculating Execution Strategy...'):
+    with st.spinner('Calculating Deep Analysis...'):
         history, modules = get_stock_data_pro(input_symbols)
 
         if isinstance(history, str):
@@ -76,12 +76,12 @@ if analyze_btn:
                 df = history.loc[symbol_jk].copy()
                 info = modules.get(symbol_jk, {}) if isinstance(modules, dict) else {}
                 
-                # --- RISK & VOLATILITY ---
+                # --- 1. RISK & VOLATILITY ---
                 df['returns'] = df['close'].pct_change()
                 volatility = df['returns'].std() * np.sqrt(252)
                 risk_label = "Low 🔵" if volatility < 0.20 else "Medium 🟡" if volatility < 0.35 else "High 🔴"
 
-                # --- TECHNICALS ---
+                # --- 2. TECHNICALS ---
                 df.ta.rsi(append=True)
                 df.ta.sma(length=50, append=True)
                 rsi_cols = [c for c in df.columns if 'RSI' in str(c)]
@@ -91,16 +91,19 @@ if analyze_btn:
                 sma_val = df.iloc[-1][sma_cols[0]] if sma_cols else df.iloc[-1]['close']
                 price = df.iloc[-1]['close']
                 
-                # Recommendation logic
+                # --- 3. FOREIGN FLOW (RESTORED) ---
+                df['Vol_Sent'] = (df['close'] - df['open']) * df['volume']
+                f_flow = "Accumulation 🟢" if df['Vol_Sent'].tail(5).sum() > 0 else "Distribution 🔴"
+                
+                # --- 4. EXECUTION TARGETS ---
                 if rsi_val < 35: rec = "BUY 🚀"
                 elif rsi_val > 65: rec = "SELL 📉"
                 else: rec = L["wait"]
-
-                # --- EXECUTION CALCULATION ---
+                
                 target_price = price * 1.10
                 stop_loss = price * 0.95
 
-                # --- FUNDAMENTALS ---
+                # --- 5. FUNDAMENTALS ---
                 summ = info.get('summaryDetail', {}) if isinstance(info, dict) else {}
                 fin = info.get('financialData', {}) if isinstance(info, dict) else {}
                 prof = info.get('summaryProfile', {}) if isinstance(info, dict) else {}
@@ -109,7 +112,7 @@ if analyze_btn:
                 roe = (fin.get('returnOnEquity', 0) or 0) * 100
                 bench = INDUSTRY_AVGS.get(next((k for k in INDUSTRY_AVGS if k in sector), "Default"))
 
-                # Store for Table
+                # Populate Summary Table
                 summary_list.append({
                     "Stock": symbol_jk.replace(".JK", ""), 
                     "Price": f"{price:,.0f}",
@@ -120,13 +123,14 @@ if analyze_btn:
                     L["buy_col"]: f"{min(sma_val, price*0.97):,.0f}"
                 })
                 
-                # Store for Details
+                # Populate Detailed Reports
                 detailed_reports.append({
                     "symbol": symbol_jk, "sector": sector, "rsi": rsi_val, "vol": volatility,
-                    "price": price, "sma": sma_val, "rec": rec, "pe": pe, "roe": roe, "bench": bench
+                    "price": price, "sma": sma_val, "f_flow": f_flow, "rec": rec,
+                    "pe": pe, "roe": roe, "bench": bench
                 })
 
-            # --- DISPLAY 1: EXECUTION STRATEGY (TOP) ---
+            # --- DISPLAY 1: EXECUTION STRATEGY ---
             st.subheader(L["summary"])
             st.dataframe(pd.DataFrame(summary_list), use_container_width=True, hide_index=True)
             st.divider()
@@ -139,6 +143,7 @@ if analyze_btn:
                     with st.container(border=True):
                         st.markdown(f"### 📈 {L['tech']}")
                         st.write(f"**RSI (14):** {r['rsi']:.2f}")
+                        st.write(f"**Foreign Flow:** {r['f_flow']}")
                         st.write(f"**Annual Volatility:** {r['vol']*100:.1f}%")
                         st.info(f"Verdict: **{r['rec']}**")
                 with c2:
@@ -148,11 +153,11 @@ if analyze_btn:
                         st.write(f"**ROE:** {r['roe']:.1f}% (Avg: {r['bench'][1]}%)")
                         st.success(f"**Quality:** {'Elite 💪' if r['roe'] > r['bench'][1] else 'Standard'}")
 
-            # --- DISPLAY 3: METHODOLOGY ---
+            # --- DISPLAY 3: METHODOLOGY (RESTORED EXPLANATIONS) ---
             with st.expander(L["method"], expanded=False):
                 st.markdown("### 📊 Indicators & Calculations")
                 st.write(f"**{L['risk']}:** Category based on Annualized Volatility (<20%=Low, >35%=High).")
-                st.write("**Target Price:** Calculated as a +10% profit objective from current price.")
-                st.write("**Stop Loss:** Set at -5% to protect capital from significant drawdowns.")
-                st.write("**RSI (14):** Momentum indicator for identifying Oversold (<35) and Overbought (>65) levels.")
-                st.write("**SMA 50:** Average closing price over 50 days; used as a technical floor for 'Buy Price' targets.")
+                st.write("**Foreign Flow:** Uses Volume-Price Trend logic. Positive net flow over 5 days suggests institutional accumulation.")
+                st.write("**RSI (14):** Momentum indicator. Support at < 35 (Oversold) and Resistance at > 65 (Overbought).")
+                st.write("**SMA 50:** 50-day average price used to identify the 'institutional floor' for Buy entries.")
+                st.write("**Target & Stop Loss:** Fixed mathematical boundaries (+10% / -5%) for disciplined trade management.")
