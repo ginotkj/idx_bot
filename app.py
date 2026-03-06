@@ -8,7 +8,7 @@ from curl_cffi import requests
 st.set_page_config(page_title="IDX Insight Engine 2026", layout="wide")
 
 # --- BROWSER IMPERSONATION ENGINE ---
-# This creates a persistent "Chrome" identity to bypass Yahoo's blocks
+# Creates a stable 'Chrome' identity to bypass Yahoo's 429 Rate Limits
 if 'session' not in st.session_state:
     st.session_state.session = requests.Session(impersonate="chrome")
 
@@ -77,6 +77,11 @@ input_symbols = st.sidebar.text_input(L["symbol_label"], "BBCA, BMRI, TLKM, ASII
 has_position = st.sidebar.toggle("I already own these stocks", value=False)
 analyze_btn = st.sidebar.button("Run Deep Analysis")
 
+# Sidebar tool to reset session if blocked
+if st.sidebar.button("Reset Connection Identity"):
+    st.session_state.session = requests.Session(impersonate="chrome")
+    st.rerun()
+
 if analyze_btn:
     raw_list = input_symbols.split(',')
     symbols = [s.strip().upper() + ('' if s.strip().upper().endswith('.JK') else '.JK') for s in raw_list]
@@ -87,13 +92,12 @@ if analyze_btn:
         result, info, rsi_c, sma_c, f_flow = get_pro_data(symbol)
         
         if isinstance(result, str):
-            st.warning(f"⚠️ {symbol}: {result if result != 'NO_DATA' else 'No data found'}")
+            st.warning(f"⚠️ {symbol}: {result if result != 'NO_DATA' else 'No data retrieved (Rate Limit or Market Closed)'}")
             continue
             
         df = result
         price, rsi_val, sma_val = df.iloc[-1]['Close'], df.iloc[-1][rsi_c], df.iloc[-1][sma_c]
         
-        # Logic for Recommendations
         if rsi_val < 35: rec = "BUY 🚀"
         elif rsi_val > 65: rec = "SELL 📉"
         else: rec = "HOLD ✅" if has_position else L["wait_msg"]
@@ -101,7 +105,6 @@ if analyze_btn:
         sector = info.get('sector', 'Default')
         sector_key = next((k for k in INDUSTRY_AVGS if k in sector), "Default")
         
-        # Table Row
         row = {
             "Stock": symbol.replace(".JK", ""), 
             "Price": f"{price:,.0f}", 
@@ -139,4 +142,4 @@ if analyze_btn:
 
     with st.expander(L["logic_header"], expanded=True):
         st.markdown("### 📊 Methodology")
-        st.write("Calculations use TLS Fingerprinting to ensure reliable data access from Yahoo Finance.")
+        st.write("This engine uses **TLS Fingerprinting** to bypass automated traffic blocks. If you encounter errors, use the 'Reset Connection' button in the sidebar.")
