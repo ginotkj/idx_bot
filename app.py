@@ -38,13 +38,13 @@ lang_data = {
         "title": "🏛️ IDX Master Trading Terminal",
         "tech": "Technical & Foreign Flow", "fund": "Fundamental & Competitiveness",
         "wait": "Wait for Dip ⏳", "buy_col": "Buy Price (Entry)", "summary": "📋 Execution Strategy",
-        "method": "🧠 Analysis Methodology", "risk": "Risk", "unknown": "Unknown Sector"
+        "method": "🧠 Analysis Methodology", "risk": "Risk"
     },
     "Bahasa Indonesia": {
         "title": "🏛️ Terminal Trading Profesional Master BEI",
         "tech": "Teknikal & Sentimen Asing", "fund": "Fundamental & Daya Saing",
         "wait": "Tunggu Dip ⏳", "buy_col": "Harga Beli (Entry)", "summary": "📋 Strategi Eksekusi",
-        "method": "🧠 Metodologi Analisis", "risk": "Risiko", "unknown": "Sektor Tidak Diketahui"
+        "method": "🧠 Metodologi Analisis", "risk": "Risiko"
     }
 }
 
@@ -55,8 +55,8 @@ INDUSTRY_AVGS = {
 }
 GENERIC_BENCH = [12.0, 10.0]
 
-# Pre-defined basket of highly liquid IDX stocks for the scanner
-LIQUID_IDX_BASKET = "BBCA, BMRI, BBRI, BBNI, TLKM, ASII, ADRO, ANTM, PTBA, UNTR, ICBP, INDF, KLBF, PGAS, SMGR, INTP, AMRT, CPIN, UNVR, MDKA, BRPT, INCO, ITMG, HRUM, MEDC, AKRA, SIDO, ESSA, MYOR, SILO"
+# Expanded basket of ~100 highly liquid IDX stocks (Kompas100 equivalents)
+LIQUID_IDX_BASKET = "BBCA, BMRI, BBRI, BBNI, TLKM, ASII, ADRO, ANTM, PTBA, UNTR, ICBP, INDF, KLBF, PGAS, SMGR, INTP, AMRT, CPIN, UNVR, MDKA, BRPT, INCO, ITMG, HRUM, MEDC, AKRA, SIDO, ESSA, MYOR, SILO, AMMN, GOTO, BREN, CUAN, TPIA, ARTO, BRIS, EXCL, ISAT, HEAL, MAPI, MAPA, ACES, CTRA, BSDE, PWON, SMRA, MTEL, TOWR, TBIG, SCMA, EMTK, MNCN, INKP, TKIM, JPFA, MAIN, TAPG, DSNG, AALI, LSIP, SIMP, SSMS, TINS, MBMA, NCKL, ADMR, PTRO, HILL, WIFI, WIKA, PTPP, ADHI, WEGE, WTON, JSMR, META, CMNP, BBTN, BDMN, BNGA, PNBN, NISP, AGRO, BRMS, BUMI, ENRG, ELSA, HMSP, GGRM, WIIM, CLEO, CMRY, ULTJ, ROTI, GOOD"
 
 selected_lang = st.sidebar.selectbox("Language / Bahasa", ["English", "Bahasa Indonesia"])
 L = lang_data[selected_lang]
@@ -67,9 +67,8 @@ analyze_btn = st.sidebar.button("Run Deep Analysis")
 
 # Trigger either manual analysis OR the Top 10 Scanner
 if analyze_btn or top10_btn:
-    # Decide which symbols to run based on the button clicked
     symbols_to_run = LIQUID_IDX_BASKET if top10_btn else input_symbols
-    mode_title = "Scanning Top 10 Buy Opportunities..." if top10_btn else "Calculating Deep Analysis..."
+    mode_title = "Scanning Top 100 Stocks for Elite Buy Opportunities..." if top10_btn else "Calculating Deep Analysis..."
     
     with st.spinner(mode_title):
         history, modules = get_stock_data_pro(symbols_to_run)
@@ -92,14 +91,14 @@ if analyze_btn or top10_btn:
                 fin = info.get('financialData', {}) if isinstance(info, dict) else {}
                 prof = info.get('summaryProfile', {}) if isinstance(info, dict) else {}
                 
+                # Clean Sector Formatting (Leaves blank if no sector is found)
                 sector_raw = prof.get('sector')
-                sector_display = sector_raw if sector_raw else L["unknown"]
+                sector_display = f" ({sector_raw})" if sector_raw else ""
                 
                 pe = summ.get('trailingPE', 0) or 0
                 roe = (fin.get('returnOnEquity', 0) or 0) * 100
                 bench = next((v for k, v in INDUSTRY_AVGS.items() if sector_raw and k in sector_raw), GENERIC_BENCH)
                 
-                # Check if fundamentally elite
                 is_elite = roe > bench[1]
 
                 # --- TECHNICALS & RISK ---
@@ -130,13 +129,12 @@ if analyze_btn or top10_btn:
                 target_price = price * 1.10
                 stop_loss = price * 0.95
 
-                # If running TOP 10 SCANNER, only keep the "BUY 🚀" stocks
                 if top10_btn and rec != "BUY 🚀":
                     continue
 
                 summary_list.append({
                     "Stock": symbol_jk.replace(".JK", ""), "Price": f"{price:,.0f}",
-                    "Risk": risk_label, "Recommendation": rec, "RSI": rsi_val, # Keep RSI as float for sorting
+                    "Risk": risk_label, "Recommendation": rec, "RSI": rsi_val,
                     "Target (+10%)": f"{target_price:,.0f}", "Stop Loss (-5%)": f"{stop_loss:,.0f}",
                     L["buy_col"]: f"{min(sma_val, price*0.97):,.0f}"
                 })
@@ -149,16 +147,15 @@ if analyze_btn or top10_btn:
 
             # --- PROCESS TOP 10 LOGIC ---
             if top10_btn:
-                # Sort by most oversold (lowest RSI) and take the top 10
                 summary_list = sorted(summary_list, key=lambda x: x["RSI"])[:10]
                 detailed_reports = sorted(detailed_reports, key=lambda x: x["rsi"])[:10]
                 
                 if len(summary_list) == 0:
-                    st.warning("⚠️ No stocks currently meet the strict criteria (Oversold RSI < 35 AND Elite ROE). The market might be overextended.")
+                    st.warning("⚠️ No stocks out of the Top 100 currently meet the strict criteria (Oversold RSI < 35 AND Elite ROE). The market might be overextended.")
                 else:
-                    st.success(f"🔥 Found {len(summary_list)} Elite Oversold Stocks!")
+                    st.success(f"🔥 Found {len(summary_list)} Elite Oversold Stocks from the Top 100 Scanner!")
 
-            # Format RSI back to string for the table display
+            # Format RSI for table
             for row in summary_list:
                 row["RSI"] = f"{row['RSI']:.1f}"
 
@@ -169,7 +166,8 @@ if analyze_btn or top10_btn:
                 st.divider()
 
                 for r in detailed_reports:
-                    st.subheader(f"🔍 {r['symbol']} ({r['sector']})")
+                    # Notice how clean this is now: No "Unknown Sector" text
+                    st.subheader(f"🔍 {r['symbol']}{r['sector']}")
                     c1, c2 = st.columns(2)
                     with c1:
                         with st.container(border=True):
