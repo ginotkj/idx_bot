@@ -84,6 +84,13 @@ if analyze_btn or top10_btn:
             
             for symbol_jk in available_symbols:
                 df = history.loc[symbol_jk].copy()
+                
+                # --- ROOT CAUSE FIX: Clean missing data (NaN) before calculating ---
+                df = df.dropna(subset=['close', 'volume'])
+                if df.empty:
+                    continue  # Skip this stock if no valid price data exists
+                # -------------------------------------------------------------------
+                
                 info = modules.get(symbol_jk, {}) if isinstance(modules, dict) else {}
                 
                 # --- FUNDAMENTALS & BENCHMARKS ---
@@ -111,8 +118,9 @@ if analyze_btn or top10_btn:
                 rsi_cols = [c for c in df.columns if 'RSI' in str(c)]
                 sma_cols = [c for c in df.columns if 'SMA_50' in str(c)]
                 
-                rsi_val = df.iloc[-1][rsi_cols[0]] if rsi_cols else 50
-                sma_val = df.iloc[-1][sma_cols[0]] if sma_cols else df.iloc[-1]['close']
+                # Secondary safeguard to ensure RSI and SMA defaults if NaNs slip through indicators
+                rsi_val = df.iloc[-1][rsi_cols[0]] if rsi_cols and pd.notna(df.iloc[-1][rsi_cols[0]]) else 50
+                sma_val = df.iloc[-1][sma_cols[0]] if sma_cols and pd.notna(df.iloc[-1][sma_cols[0]]) else df.iloc[-1]['close']
                 price = df.iloc[-1]['close']
                 
                 df['Vol_Sent'] = (df['close'] - df['open']) * df['volume']
@@ -166,7 +174,6 @@ if analyze_btn or top10_btn:
                 st.divider()
 
                 for r in detailed_reports:
-                    # Notice how clean this is now: No "Unknown Sector" text
                     st.subheader(f"🔍 {r['symbol']}{r['sector']}")
                     c1, c2 = st.columns(2)
                     with c1:
