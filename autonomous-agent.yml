@@ -2,11 +2,9 @@ name: Autonomous IDX Analyst Agent
 
 on:
   schedule:
-    # Run every 30 minutes during market hours (9:00 AM - 4:00 PM WIB)
-    - cron: '*/30 2-9 * * 1-5'  # UTC hours for WIB 9:00-16:00
-    # Run every hour outside market hours
+    - cron: '*/30 2-9 * * 1-5'
     - cron: '0 * * * *'
-  workflow_dispatch:  # Allow manual triggering
+  workflow_dispatch:
 
 jobs:
   autonomous-analysis:
@@ -19,7 +17,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.11'
+        python-version: '3.11'    # ← KEEP THIS LINE
         
     - name: Install dependencies
       run: |
@@ -38,7 +36,7 @@ jobs:
         
     - name: Upload agent logs
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v4    # ← ONLY CHANGE THIS LINE
       with:
         name: agent-logs-${{ github.run_number }}
         path: agent.log
