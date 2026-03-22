@@ -15,8 +15,40 @@ from enum import Enum
 
 import yfinance as yf
 import pandas as pd
-import pandas_ta as ta
 import numpy as np
+
+# Manual technical indicator calculations (no pandas-ta needed)
+def calculate_rsi(data, period=14):
+    """Calculate RSI manually"""
+    delta = data.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
+
+def calculate_sma(data, period):
+    """Calculate Simple Moving Average"""
+    return data.rolling(window=period).mean()
+
+def calculate_ema(data, period):
+    """Calculate Exponential Moving Average"""
+    return data.ewm(span=period).mean()
+
+def calculate_bollinger_bands(data, period=20, std_dev=2):
+    """Calculate Bollinger Bands"""
+    sma = calculate_sma(data, period)
+    std = data.rolling(window=period).std()
+    upper_band = sma + (std * std_dev)
+    lower_band = sma - (std * std_dev)
+    return upper_band, sma, lower_band
+
+def calculate_atr(high, low, close, period=14):
+    """Calculate Average True Range"""
+    tr1 = high - low
+    tr2 = abs(high - close.shift())
+    tr3 = abs(low - close.shift())
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    return tr.rolling(window=period).mean()
 
 # Configure logging
 logging.basicConfig(
@@ -113,30 +145,43 @@ class AutonomousAnalystAgent:
     def _analyze_ticker_anomaly(self, symbol: str) -> Optional[MarketSignal]:
         """Analyze single ticker for multiple anomaly types"""
         try:
+            logger.info(f"Starting anomaly analysis for {symbol}")
+            
             ticker = yf.Ticker(symbol)
             df = ticker.history(period="3mo")
             
-            if df.empty or len(df) < 50:
+            if df.empty:
+                logger.warning(f"No historical data available for {symbol}")
                 return None
             
+            if len(df) < 50:
+                logger.warning(f"Insufficient historical data for {symbol}: {len(df)} days")
+                return None
+            
+            logger.info(f"Successfully retrieved {len(df)} days of data for {symbol}")
+            
             # Calculate indicators
-            df['RSI'] = ta.rsi(df['Close'], length=14)
-            df['SMA_20'] = ta.sma(df['Close'], length=20)
-            df['SMA_50'] = ta.sma(df['Close'], length=50)
-            df['Volume_SMA'] = ta.sma(df['Volume'], length=20)
-            df['ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=14)
+            df['RSI'] = calculate_rsi(df['Close'], 14)
+            df['SMA_20'] = calculate_sma(df['Close'], 20)
+            df['SMA_50'] = calculate_sma(df['Close'], 50)
+            df['Volume_SMA'] = calculate_sma(df['Volume'], 20)
+            df['ATR'] = calculate_atr(df['High'], df['Low'], df['Close'], 14)
             
             latest = df.iloc[-1]
             prev_day = df.iloc[-2]
             
             price = float(latest['Close'])
             volume = int(latest['Volume'])
-            rsi = float(latest['RSI'])
+            rsi = float(latest['RSI']) if pd.notna(latest['RSI']) else 50
+            
+            logger.info(f"Calculated basic indicators for {symbol}: price={price}, rsi={rsi}, volume={volume}")
             
             # Detect different anomaly types
             anomaly_type, confidence, signal_type = self._detect_anomaly_type(df, latest, prev_day)
             
             if anomaly_type and confidence > 0.7:
+                logger.info(f"Anomaly detected for {symbol}: {anomaly_type.value} with confidence {confidence:.2f}")
+                
                 return MarketSignal(
                     symbol=symbol.replace(".JK", ""),
                     signal_type=signal_type,
@@ -152,6 +197,8 @@ class AutonomousAnalystAgent:
                         'atr': float(latest['ATR']) if pd.notna(latest['ATR']) else 0
                     }
                 )
+            else:
+                logger.info(f"No significant anomaly detected for {symbol}")
                 
         except Exception as e:
             logger.error(f"Error in anomaly detection for {symbol}: {e}")
@@ -236,26 +283,33 @@ class AutonomousAnalystAgent:
             df = ticker.history(period="1y")
             
             if df.empty:
-                return {}
+                logger.warning(f"No data found for {symbol}")
+                return self._get_default_technical_values(symbol)
+            
+            if len(df) < 50:
+                logger.warning(f"Insufficient data for {symbol}: {len(df)} days")
+                return self._get_default_technical_values(symbol)
+            
+            logger.info(f"Processing {symbol} with {len(df)} days of data")
             
             # Multiple timeframes
             indicators = {}
             
             # Short-term indicators
-            df['RSI_14'] = ta.rsi(df['Close'], length=14)
-            df['RSI_7'] = ta.rsi(df['Close'], length=7)
-            df['MACD'] = ta.macd(df['Close'])['MACD_12_26_9']
-            df['BB_upper'], df['BB_middle'], df['BB_lower'] = ta.bbands(df['Close'], length=20)
+            df['RSI_14'] = calculate_rsi(df['Close'], 14)
+            df['RSI_7'] = calculate_rsi(df['Close'], 7)
+            df['MACD'] = calculate_ema(df['Close'], 12) - calculate_ema(df['Close'], 26)
+            df['BB_upper'], df['BB_middle'], df['BB_lower'] = calculate_bollinger_bands(df['Close'], 20)
             
             # Medium-term indicators
-            df['SMA_20'] = ta.sma(df['Close'], length=20)
-            df['SMA_50'] = ta.sma(df['Close'], length=50)
-            df['EMA_12'] = ta.ema(df['Close'], length=12)
-            df['EMA_26'] = ta.ema(df['Close'], length=26)
+            df['SMA_20'] = calculate_sma(df['Close'], 20)
+            df['SMA_50'] = calculate_sma(df['Close'], 50)
+            df['EMA_12'] = calculate_ema(df['Close'], 12)
+            df['EMA_26'] = calculate_ema(df['Close'], 26)
             
             # Long-term indicators
-            df['SMA_100'] = ta.sma(df['Close'], length=100)
-            df['SMA_200'] = ta.sma(df['Close'], length=200)
+            df['SMA_100'] = calculate_sma(df['Close'], 100)
+            df['SMA_200'] = calculate_sma(df['Close'], 200)
             
             latest = df.iloc[-1]
             
@@ -264,7 +318,7 @@ class AutonomousAnalystAgent:
                 'rsi_14': float(latest['RSI_14']) if pd.notna(latest['RSI_14']) else 50,
                 'rsi_7': float(latest['RSI_7']) if pd.notna(latest['RSI_7']) else 50,
                 'macd': float(latest['MACD']) if pd.notna(latest['MACD']) else 0,
-                'bb_position': (latest['Close'] - latest['BB_lower']) / (latest['BB_upper'] - latest['BB_lower']) if pd.notna(latest['BB_upper']) else 0.5,
+                'bb_position': (latest['Close'] - latest['BB_lower']) / (latest['BB_upper'] - latest['BB_lower']) if pd.notna(latest['BB_upper']) and pd.notna(latest['BB_lower']) else 0.5,
                 'sma_20': float(latest['SMA_20']) if pd.notna(latest['SMA_20']) else latest['Close'],
                 'sma_50': float(latest['SMA_50']) if pd.notna(latest['SMA_50']) else latest['Close'],
                 'sma_100': float(latest['SMA_100']) if pd.notna(latest['SMA_100']) else latest['Close'],
@@ -274,11 +328,30 @@ class AutonomousAnalystAgent:
                 'support_resistance': self._find_support_resistance(df)
             })
             
+            logger.info(f"Successfully calculated indicators for {symbol}: price={indicators['price']}, rsi={indicators['rsi_14']}, volume_ratio={indicators['volume_ratio']}")
+            
             return indicators
             
         except Exception as e:
             logger.error(f"Technical analysis failed for {symbol}: {e}")
-            return {}
+            return self._get_default_technical_values(symbol)
+    
+    def _get_default_technical_values(self, symbol: str) -> Dict:
+        """Return default values when technical analysis fails"""
+        return {
+            'price': 0,
+            'rsi_14': 50,
+            'rsi_7': 50,
+            'macd': 0,
+            'bb_position': 0.5,
+            'sma_20': 0,
+            'sma_50': 0,
+            'sma_100': 0,
+            'sma_200': 0,
+            'volume_ratio': 1,
+            'trend_strength': 0.5,
+            'support_resistance': {'support': 0, 'resistance': 0}
+        }
     
     def _calculate_trend_strength(self, df: pd.DataFrame) -> float:
         """Calculate trend strength using multiple indicators"""
@@ -533,25 +606,35 @@ class AutonomousAnalystAgent:
     def _create_intelligent_message(self, research: ResearchResult, signal: MarketSignal) -> str:
         """Create comprehensive intelligent alert message"""
         
-        ta = research.technical_analysis
-        fa = research.fundamental_analysis
-        news = research.news_sentiment
+        ta = research.technical_analysis or {}
+        fa = research.fundamental_analysis or {}
+        news = research.news_sentiment or {}
+        
+        # Get values with fallbacks
+        price = ta.get('price', signal.price)
+        rsi = ta.get('rsi_14', 50)
+        volume_ratio = ta.get('volume_ratio', 1)
+        trend_strength = ta.get('trend_strength', 0.5)
+        support_resistance = ta.get('support_resistance', {})
+        support = support_resistance.get('support', 0)
+        resistance = support_resistance.get('resistance', 0)
+        bb_position = ta.get('bb_position', 0.5)
         
         message = f"""🧠 <b>Autonomous Analysis: {research.symbol}</b>
 ⚡ <b>Anomaly Detected:</b> {signal.anomaly_type.value}
 📊 <b>Signal:</b> {research.recommendation} (Confidence: {research.confidence:.1%})
 
 💰 <b>Price Action:</b>
-• Current: {ta.get('price', 0):,.0f}
-• RSI: {ta.get('rsi_14', 0):.1f}
-• Volume Ratio: {ta.get('volume_ratio', 0):.1f}x
+• Current: {price:,.0f}
+• RSI: {rsi:.1f}
+• Volume Ratio: {volume_ratio:.1f}x
 • Risk/Reward: {research.risk_reward_ratio:.2f}
 
 📈 <b>Technical Intelligence:</b>
-• Trend Strength: {ta.get('trend_strength', 0):.1%}
-• Support: {ta.get('support_resistance', {}).get('support', 0):,.0f}
-• Resistance: {ta.get('support_resistance', {}).get('resistance', 0):,.0f}
-• BB Position: {ta.get('bb_position', 0):.1%}
+• Trend Strength: {trend_strength:.1%}
+• Support: {support:,.0f}
+• Resistance: {resistance:,.0f}
+• BB Position: {bb_position:.1%}
 
 📰 <b>News Sentiment:</b> {news.get('sentiment_label', 'Neutral')} ({news.get('sentiment_score', 0):.2f})
 💼 <b>Fundamentals:</b> Score {fa.get('fundamental_score', 0):.1%}
