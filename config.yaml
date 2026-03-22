@@ -1,0 +1,56 @@
+# Autonomous IDX Analyst Agent Configuration
+
+agent:
+  name: "IDX Autonomous Analyst"
+  version: "2.0.0"
+  mode: "autonomous"
+  
+market:
+  exchange: "IDX"
+  timezone: "Asia/Jakarta"
+  market_hours:
+    start: "09:00"
+    end: "16:00"
+  trading_days: ["monday", "tuesday", "wednesday", "thursday", "friday"]
+
+analysis:
+  tickers_count: 100
+  anomaly_detection:
+    volume_threshold: 3.0  # Volume ratio multiplier
+    price_spike_threshold: 5.0  # Percentage change
+    rsi_oversold: 30
+    rsi_overbought: 70
+    breakout_volume_multiplier: 1.5
+    
+  technical_indicators:
+    rsi_periods: [7, 14]
+    sma_periods: [20, 50, 100, 200]
+    ema_periods: [12, 26]
+    bollinger_period: 20
+    atr_period: 14
+    
+  research:
+    cache_duration_hours: 1
+    min_confidence_threshold: 0.6
+    risk_reward_min_threshold: 1.0
+    
+alerts:
+  telegram:
+    enabled: true
+    format: "html"
+    include_charts: false
+    
+  rate_limiting:
+    max_alerts_per_hour: 10
+    cooldown_minutes: 15
+    
+logging:
+  level: "INFO"
+  file: "agent.log"
+  max_size_mb: 10
+  backup_count: 5
+  
+monitoring:
+  performance_tracking: true
+  alert_success_rate: true
+  anomaly_detection_accuracy: true
