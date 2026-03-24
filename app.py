@@ -12,18 +12,20 @@ except ImportError:
 st.set_page_config(page_title="IDX Resilience Engine", layout="wide")
 
 if not READY:
-    st.error("🚨 System Update: Libraries are still installing. Please wait 2-3 minutes and refresh.")
+    st.error("🚨 Libraries are still installing in the background. Please wait 2 minutes and refresh the page.")
+    st.info("If this persists, check the 'Manage App' logs for installation errors.")
     st.stop()
 
 # 2. DATA ENGINE
 @st.cache_data(ttl=600)
-def fetch_data(tickers_str):
+def fetch_market_data(tickers_str):
     try:
-        syms = [s.strip().upper() + '.JK' for s in tickers_str.split(',')]
+        clean = [s.strip().upper() for s in tickers_str.split(',')]
+        syms = [s + ('' if s.endswith('.JK') else '.JK') for s in clean]
         t = Ticker(syms, asynchronous=True)
         hist = t.history(period="1y")
         
-        # Drop empty rows to prevent 'nan' prices
+        # Drop rows with no data to prevent previous 'nan' errors
         if isinstance(hist, pd.DataFrame): 
             hist = hist.dropna(subset=['close'])
             
@@ -36,15 +38,15 @@ st.title("🏛️ IDX Resilience Engine")
 query = st.sidebar.text_input("Stocks", "BBCA, BMRI, TLKM, ASII")
 
 if st.sidebar.button("Run Analysis"):
-    with st.spinner("Fetching Market Data..."):
-        hist, mods = fetch_data(query)
+    with st.spinner("Fetching Data..."):
+        hist, mods = fetch_market_data(query)
         if hist is None or hist.empty:
-            st.warning("Yahoo Finance is temporarily busy. Wait 5 mins.")
+            st.warning("⚠️ Yahoo Finance is busy. Please try again in a few minutes.")
         else:
             results = []
             for s in hist.index.get_level_values(0).unique():
                 df = hist.loc[s]
-                # Fallback for sector information
+                # Fix for Sector info
                 info = mods.get(s, {}) if isinstance(mods, dict) else {}
                 sector = info.get('summaryProfile', {}).get('sector', 'IDX Listed')
                 
