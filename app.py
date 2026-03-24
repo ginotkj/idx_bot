@@ -3,23 +3,22 @@ from yahooquery import Ticker
 import pandas as pd
 import pandas_ta as ta
 import numpy as np
-import time
 
 st.set_page_config(page_title="IDX Insight Engine Pro", layout="wide")
 
-# --- 1. ROBUST DATA FETCHING (With Anti-Block Delay) ---
-@st.cache_data(ttl=3600)
-def get_clean_data(symbol_string):
+# --- 1. THE FAIL-SAFE DATA ENGINE ---
+@st.cache_data(ttl=1800) # Cache for 30 mins to reduce rate-limit risk
+def fetch_market_data(symbol_str):
     try:
-        raw_list = [s.strip().upper() for s in symbol_string.split(',')]
+        raw_list = [s.strip().upper() for s in symbol_str.split(',')]
         symbols = [s + ('' if s.endswith('.JK') else '.JK') for s in raw_list]
         
-        # We fetch in one go but with a backup check
         t = Ticker(symbols, asynchronous=True)
         history = t.history(period="1y")
         
-        if history is None or (isinstance(history, dict) and not history):
-            return "Yahoo is blocking requests. Please wait 5 mins.", {}
+        # Check if Yahoo returned a block/empty response
+        if history is None or (isinstance(history, dict) and not history) or history.empty:
+            return None, None
             
         try:
             modules = t.get_modules(['summaryDetail', 'financialData', 'summaryProfile'])
@@ -27,84 +26,76 @@ def get_clean_data(symbol_string):
             modules = {}
             
         return history, modules
-    except Exception as e:
-        return str(e), {}
+    except Exception:
+        return None, None
 
-# --- 2. CONFIG & UI ---
-L_IDX = "BBCA, BMRI, BBRI, BBNI, TLKM, ASII, ADRO, ANTM, PTBA, UNTR, ICBP, INDF, KLBF, PGAS, SMGR, INTP, AMRT, CPIN, UNVR, MDKA, BRPT, INCO, ITMG, HRUM, MEDC, AKRA, SIDO, ESSA, MYOR, SILO, AMMN, GOTO, BREN, CUAN, TPIA, ARTO, BRIS, EXCL, ISAT, HEAL, MAPI, MAPA, ACES, CTRA, BSDE, PWON, SMRA, MTEL, TOWR, TBIG, SCMA, EMTK, MNCN, INKP, TKIM, JPFA, MAIN, TAPG, DSNG, AALI, LSIP, SIMP, SSMS, TINS, MBMA, NCKL, ADMR, PTRO, HILL, WIFI, WIKA, PTPP, ADHI, WEGE, WTON, JSMR, META, CMNP, BBTN, BDMN, BNGA, PNBN, NISP, AGRO, BRMS, BUMI, ENRG, ELSA, HMSP, GGRM, WIIM, CLEO, CMRY, ULTJ, ROTI, GOOD"
-
+# --- 2. APP UI ---
 st.title("🏛️ IDX Insight Engine Pro")
-top10_btn = st.sidebar.button("🏆 Top 10 Buy Stocks")
-manual_input = st.sidebar.text_input("Manual Symbols", "BBCA, BMRI, TLKM")
-run_manual = st.sidebar.button("Run Manual Scan")
 
-if run_manual or top10_btn:
-    target = L_IDX if top10_btn else manual_input
-    with st.spinner("Analyzing Market Data..."):
-        history, modules = get_clean_data(target)
+if st.sidebar.button("🔄 Clear Cache & Refresh"):
+    st.cache_data.clear()
+    st.rerun()
 
-        if isinstance(history, str):
-            st.error(f"⚠️ {history}")
+top10_mode = st.sidebar.button("🏆 Top 10 Buy Stocks")
+manual_input = st.sidebar.text_input("Stock Symbols", "BBCA, BMRI, TLKM, ASII")
+run_manual = st.sidebar.button("Run Deep Analysis")
+
+# ~100 Stocks for the Scanner
+LIQUID_BASKET = "BBCA, BMRI, BBRI, BBNI, TLKM, ASII, ADRO, ANTM, PTBA, UNTR, ICBP, INDF, KLBF, PGAS, SMGR, INTP, AMRT, CPIN, UNVR, MDKA, BRPT, INCO, ITMG, HRUM, MEDC, AKRA, SIDO, ESSA, MYOR, SILO, AMMN, GOTO, BREN, CUAN, TPIA, ARTO, BRIS, EXCL, ISAT, HEAL, MAPI, MAPA, ACES, CTRA, BSDE, PWON, SMRA, MTEL, TOWR, TBIG, SCMA, EMTK, MNCN, INKP, TKIM, JPFA, MAIN, TAPG, DSNG, AALI, LSIP, SIMP, SSMS, TINS, MBMA, NCKL, ADMR, PTRO, HILL, WIFI, WIKA, PTPP, ADHI, WEGE, WTON, JSMR, META, CMNP, BBTN, BDMN, BNGA, PNBN, NISP, AGRO, BRMS, BUMI, ENRG, ELSA, HMSP, GGRM, WIIM, CLEO, CMRY, ULTJ, ROTI, GOOD"
+
+if run_manual or top10_mode:
+    target = LIQUID_BASKET if top10_mode else manual_input
+    
+    with st.spinner("Connecting to IDX Data Streams..."):
+        history, modules = fetch_market_data(target)
+
+        if history is None:
+            st.error("⚠️ Yahoo Finance is currently rate-limiting this connection.")
+            st.info("Try clicking 'Clear Cache' or wait 5 minutes for the block to lift.")
         else:
-            summary = []
-            detailed = []
-            # Get unique symbols that actually returned data
-            available = history.index.get_level_values(0).unique() if hasattr(history, 'index') else []
+            summary_data = []
+            available_syms = history.index.get_level_values(0).unique()
             
-            for sym in available:
-                # FIX: Drop rows with NaN close prices immediately to fix 'nan' in table
+            for sym in available_syms:
+                # FIX: Remove any row with NaN to prevent 'nan' in table
                 df = history.loc[sym].copy().dropna(subset=['close'])
-                if len(df) < 30: continue 
+                if len(df) < 20: continue
 
-                # FIX: Extreme NoneType protection for fundamentals
+                # FIX: Guaranteed dictionary type to prevent AttributeError
                 info = {}
                 if isinstance(modules, dict):
                     raw_info = modules.get(sym)
                     if isinstance(raw_info, dict):
                         info = raw_info
 
-                summ_mod = info.get('summaryDetail', {}) if isinstance(info.get('summaryDetail'), dict) else {}
-                fin_mod = info.get('financialData', {}) if isinstance(info.get('financialData'), dict) else {}
-                prof_mod = info.get('summaryProfile', {}) if isinstance(info.get('summaryProfile'), dict) else {}
-
-                # Sector Logic (Requested: Blank if unknown)
-                sec = prof_mod.get('sector')
-                sec_text = f" ({sec})" if sec else ""
-
-                # Technicals
+                summ = info.get('summaryDetail', {}) if isinstance(info.get('summaryDetail'), dict) else {}
+                fin = info.get('financialData', {}) if isinstance(info.get('financialData'), dict) else {}
+                
+                # Calculations with zero-division safety
                 price = df.iloc[-1]['close']
+                roe = (fin.get('returnOnEquity', 0) or 0) * 100
+                
                 df.ta.rsi(append=True)
                 rsi_col = [c for c in df.columns if 'RSI' in str(c)]
-                rsi_val = df.iloc[-1][rsi_col[0]] if rsi_col and not np.isnan(df.iloc[-1][rsi_col[0]]) else 50
+                rsi_val = df.iloc[-1][rsi_col[0]] if rsi_col and pd.notna(df.iloc[-1][rsi_col[0]]) else 50
                 
-                # Fundamentals
-                roe = (fin_mod.get('returnOnEquity', 0) or 0) * 100
-                pe = summ_mod.get('trailingPE', 0) or 0
-                
-                # Recommendation Logic
-                if rsi_val < 35 and roe > 12: rec = "BUY 🚀"
+                # Strategy logic
+                rec = "Wait for Dip ⏳"
+                if rsi_val < 35 and roe > 10: rec = "BUY 🚀"
                 elif rsi_val > 70: rec = "SELL 📉"
-                else: rec = "Wait for Dip ⏳"
 
-                if top10_btn and rec != "BUY 🚀": continue
+                if top10_mode and rec != "BUY 🚀": continue
 
-                summary.append({
-                    "Stock": sym.replace(".JK", ""), "Price": f"{price:,.0f}",
-                    "RSI": rsi_val, "Recommendation": rec,
-                    "Target (+10%)": f"{price*1.1:,.0f}", "Stop Loss (-5%)": f"{price*0.95:,.0f}"
+                summary_data.append({
+                    "Stock": sym.replace(".JK", ""),
+                    "Price": f"{price:,.0f}",
+                    "RSI": f"{rsi_val:.1f}",
+                    "Recommendation": rec,
+                    "Buy Price Target": f"{price*0.97:,.0f}" # 3% below current
                 })
-                detailed.append({"sym": sym, "sec": sec_text, "rsi": rsi_val, "roe": roe, "pe": pe, "rec": rec})
 
-            if summary:
+            if summary_data:
                 st.subheader("📋 Execution Strategy")
-                res_df = pd.DataFrame(summary).sort_values("RSI")
-                st.dataframe(res_df.head(10), use_container_width=True, hide_index=True)
-                
-                for r in detailed[:10]:
-                    with st.expander(f"🔍 {r['sym']}{r['sec']}"):
-                        c1, c2 = st.columns(2)
-                        c1.metric("RSI", f"{r['rsi']:.2f}")
-                        c2.metric("ROE", f"{r['roe']:.1f}%")
-                        st.info(f"Verdict: {r['rec']}")
+                st.dataframe(pd.DataFrame(summary_data), use_container_width=True, hide_index=True)
             else:
-                st.warning("No high-probability setups found right now.")
+                st.warning("No high-confidence setups found. Market might be overextended.")
