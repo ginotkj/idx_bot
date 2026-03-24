@@ -1,6 +1,4 @@
-# Force Python version constraint
-python-version>=3.12,<3.13
-streamlit>=1.28.0
-yahooquery>=2.3.0
-pandas>=2.0.0
-numpy>=1.24.0
+streamlit>=1.27.0
+yahooquery>=2.2.0
+pandas>=1.5.0
+numpy>=1.20.0
