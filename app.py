@@ -12,7 +12,7 @@ except ImportError:
 st.set_page_config(page_title="IDX Resilience Engine", layout="wide")
 
 if not READY:
-    st.error("🚨 Libraries are still installing or failed. Check 'Manage App' logs.")
+    st.error("🚨 System Update: Libraries are still installing. Please wait 2-3 minutes and refresh.")
     st.stop()
 
 # 2. DATA ENGINE
@@ -23,7 +23,7 @@ def fetch_data(tickers_str):
         t = Ticker(syms, asynchronous=True)
         hist = t.history(period="1y")
         
-        # FIX: Drop empty rows to prevent the 'nan' errors seen previously
+        # Drop empty rows to prevent 'nan' prices
         if isinstance(hist, pd.DataFrame): 
             hist = hist.dropna(subset=['close'])
             
@@ -39,12 +39,12 @@ if st.sidebar.button("Run Analysis"):
     with st.spinner("Fetching Market Data..."):
         hist, mods = fetch_data(query)
         if hist is None or hist.empty:
-            st.warning("Yahoo Finance blocked the request. Wait 5 mins.")
+            st.warning("Yahoo Finance is temporarily busy. Wait 5 mins.")
         else:
             results = []
             for s in hist.index.get_level_values(0).unique():
                 df = hist.loc[s]
-                # FIX: Sector fallback for cleaner results
+                # Fallback for sector information
                 info = mods.get(s, {}) if isinstance(mods, dict) else {}
                 sector = info.get('summaryProfile', {}).get('sector', 'IDX Listed')
                 
