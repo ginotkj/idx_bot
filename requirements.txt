@@ -1,3 +1,5 @@
 yahooquery
 pandas
 plotly
+pandas-ta
+curl_cffi
