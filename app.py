@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 
-# 1. DEFENSIVE IMPORTS
+# 1. SAFETY IMPORTS
 try:
     from yahooquery import Ticker
     import pandas_ta as ta
@@ -12,7 +12,7 @@ except ImportError:
 st.set_page_config(page_title="IDX Resilience Engine", layout="wide")
 
 if not READY:
-    st.error("🚨 Libraries not installed yet. Check the 'Manage App' terminal.")
+    st.error("🚨 System Error: Libraries are still installing. Please wait 2 minutes and Refresh.")
     st.stop()
 
 # 2. DATA ENGINE
@@ -23,7 +23,7 @@ def fetch_data(tickers_str):
         t = Ticker(syms, asynchronous=True)
         hist = t.history(period="1y")
         
-        # FIX: Drop empty rows to prevent 'nan'
+        # FIX: Drop empty rows to prevent 'nan' results
         if isinstance(hist, pd.DataFrame): 
             hist = hist.dropna(subset=['close'])
             
@@ -31,20 +31,21 @@ def fetch_data(tickers_str):
     except:
         return None, {}
 
-# 3. INTERFACE
+# 3. UI
 st.title("🏛️ IDX Resilience Engine")
 query = st.sidebar.text_input("Stocks", "BBCA, BMRI, TLKM, ASII")
 
 if st.sidebar.button("Run Analysis"):
-    with st.spinner("Fetching Market Data..."):
+    with st.spinner("Accessing IDX Data..."):
         hist, mods = fetch_data(query)
         if hist is None or hist.empty:
-            st.warning("Yahoo Finance blocked the request. Wait 5 mins.")
+            st.warning("Yahoo Finance is blocking requests. Please wait 5 mins.")
         else:
             results = []
             for s in hist.index.get_level_values(0).unique():
                 df = hist.loc[s]
-                # FIX: Sector fallback
+                
+                # FIX: Sector fallback for 'Unknown Sector' error
                 sector = mods.get(s, {}).get('summaryProfile', {}).get('sector', 'IDX Listed')
                 
                 price = df.iloc[-1]['close']
