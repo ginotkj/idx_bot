@@ -1,6 +1,6 @@
 streamlit==1.32.0
-pandas>=2.0.0
-yahooquery==2.3.7
+pandas
+yahooquery
 pandas-ta==0.3.14b0
-plotly==5.18.0
+plotly
 requests
