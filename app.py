@@ -4,98 +4,84 @@ import pandas as pd
 import pandas_ta as ta
 import numpy as np
 
-st.set_page_config(page_title="IDX Insight Engine Pro", layout="wide")
+st.set_page_config(page_title="IDX Insight Engine", layout="wide")
 
-# --- 1. THE FAIL-SAFE DATA ENGINE ---
-@st.cache_data(ttl=1800) # Cache for 30 mins to reduce rate-limit risk
-def fetch_market_data(symbol_str):
+# 1. DEFENSIVE DATA FETCHING
+@st.cache_data(ttl=1200) # Cache for 20 mins to stay under the radar
+def get_data_safe(symbols_str):
     try:
-        raw_list = [s.strip().upper() for s in symbol_str.split(',')]
-        symbols = [s + ('' if s.endswith('.JK') else '.JK') for s in raw_list]
+        raw = [s.strip().upper() for s in symbols_str.split(',')]
+        syms = [s + ('' if s.endswith('.JK') else '.JK') for s in raw]
+        t = Ticker(syms, asynchronous=True)
         
-        t = Ticker(symbols, asynchronous=True)
-        history = t.history(period="1y")
-        
-        # Check if Yahoo returned a block/empty response
-        if history is None or (isinstance(history, dict) and not history) or history.empty:
+        hist = t.history(period="1y")
+        # If Yahoo returns an error message instead of a DataFrame
+        if hist is None or (isinstance(hist, dict) and not hist) or (isinstance(hist, pd.DataFrame) and hist.empty):
             return None, None
             
         try:
-            modules = t.get_modules(['summaryDetail', 'financialData', 'summaryProfile'])
+            mods = t.get_modules(['summaryDetail', 'financialData'])
         except:
-            modules = {}
+            mods = {}
             
-        return history, modules
+        return hist, mods
     except Exception:
         return None, None
 
-# --- 2. APP UI ---
-st.title("🏛️ IDX Insight Engine Pro")
+# 2. UI ELEMENTS
+st.title("🏛️ IDX Insight Engine")
 
-if st.sidebar.button("🔄 Clear Cache & Refresh"):
+if st.sidebar.button("🔄 Force Reset Connection"):
     st.cache_data.clear()
     st.rerun()
 
-top10_mode = st.sidebar.button("🏆 Top 10 Buy Stocks")
-manual_input = st.sidebar.text_input("Stock Symbols", "BBCA, BMRI, TLKM, ASII")
-run_manual = st.sidebar.button("Run Deep Analysis")
+manual_input = st.sidebar.text_input("Stocks", "BBCA, BMRI, TLKM, ASII")
+run_btn = st.sidebar.button("Run Deep Analysis")
 
-# ~100 Stocks for the Scanner
-LIQUID_BASKET = "BBCA, BMRI, BBRI, BBNI, TLKM, ASII, ADRO, ANTM, PTBA, UNTR, ICBP, INDF, KLBF, PGAS, SMGR, INTP, AMRT, CPIN, UNVR, MDKA, BRPT, INCO, ITMG, HRUM, MEDC, AKRA, SIDO, ESSA, MYOR, SILO, AMMN, GOTO, BREN, CUAN, TPIA, ARTO, BRIS, EXCL, ISAT, HEAL, MAPI, MAPA, ACES, CTRA, BSDE, PWON, SMRA, MTEL, TOWR, TBIG, SCMA, EMTK, MNCN, INKP, TKIM, JPFA, MAIN, TAPG, DSNG, AALI, LSIP, SIMP, SSMS, TINS, MBMA, NCKL, ADMR, PTRO, HILL, WIFI, WIKA, PTPP, ADHI, WEGE, WTON, JSMR, META, CMNP, BBTN, BDMN, BNGA, PNBN, NISP, AGRO, BRMS, BUMI, ENRG, ELSA, HMSP, GGRM, WIIM, CLEO, CMRY, ULTJ, ROTI, GOOD"
-
-if run_manual or top10_mode:
-    target = LIQUID_BASKET if top10_mode else manual_input
-    
-    with st.spinner("Connecting to IDX Data Streams..."):
-        history, modules = fetch_market_data(target)
+if run_btn:
+    with st.spinner("Bypassing rate limits..."):
+        history, modules = get_data_safe(manual_input)
 
         if history is None:
-            st.error("⚠️ Yahoo Finance is currently rate-limiting this connection.")
-            st.info("Try clicking 'Clear Cache' or wait 5 minutes for the block to lift.")
+            st.error("🛑 Yahoo Finance is currently blocking requests from this server.")
+            st.info("Wait 5-10 minutes for the block to lift, or try the 'Force Reset' button.")
         else:
-            summary_data = []
-            available_syms = history.index.get_level_values(0).unique()
+            summary_list = []
+            available = history.index.get_level_values(0).unique()
             
-            for sym in available_syms:
-                # FIX: Remove any row with NaN to prevent 'nan' in table
-                df = history.loc[sym].copy().dropna(subset=['close'])
-                if len(df) < 20: continue
+            for s in available:
+                # FIX: Immediately drop rows with no price to prevent 'nan'
+                df = history.loc[s].copy().dropna(subset=['close'])
+                if len(df) < 10: continue
 
-                # FIX: Guaranteed dictionary type to prevent AttributeError
-                info = {}
-                if isinstance(modules, dict):
-                    raw_info = modules.get(sym)
-                    if isinstance(raw_info, dict):
-                        info = raw_info
-
-                summ = info.get('summaryDetail', {}) if isinstance(info.get('summaryDetail'), dict) else {}
+                # FIX: Safeguard against NoneType objects
+                info = modules.get(s, {}) if isinstance(modules, dict) else {}
+                if not isinstance(info, dict): info = {}
+                
                 fin = info.get('financialData', {}) if isinstance(info.get('financialData'), dict) else {}
                 
-                # Calculations with zero-division safety
                 price = df.iloc[-1]['close']
                 roe = (fin.get('returnOnEquity', 0) or 0) * 100
                 
+                # Tech Indicators
                 df.ta.rsi(append=True)
                 rsi_col = [c for c in df.columns if 'RSI' in str(c)]
                 rsi_val = df.iloc[-1][rsi_col[0]] if rsi_col and pd.notna(df.iloc[-1][rsi_col[0]]) else 50
                 
-                # Strategy logic
                 rec = "Wait for Dip ⏳"
-                if rsi_val < 35 and roe > 10: rec = "BUY 🚀"
+                if rsi_val < 35: rec = "BUY 🚀"
                 elif rsi_val > 70: rec = "SELL 📉"
 
-                if top10_mode and rec != "BUY 🚀": continue
-
-                summary_data.append({
-                    "Stock": sym.replace(".JK", ""),
+                summary_list.append({
+                    "Stock": s.replace(".JK", ""),
                     "Price": f"{price:,.0f}",
                     "RSI": f"{rsi_val:.1f}",
                     "Recommendation": rec,
-                    "Buy Price Target": f"{price*0.97:,.0f}" # 3% below current
+                    "Target (+10%)": f"{price*1.1:,.0f}"
                 })
 
-            if summary_data:
+            if summary_list:
                 st.subheader("📋 Execution Strategy")
-                st.dataframe(pd.DataFrame(summary_data), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(summary_list), use_container_width=True, hide_index=True)
             else:
-                st.warning("No high-confidence setups found. Market might be overextended.")
+                st.warning("No valid data could be parsed for these symbols.")
