@@ -2,121 +2,82 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-# --- 1. CRITICAL IMPORT PROTECTION ---
-# This prevents the "Oh no" screen if libraries are missing
+# --- 1. DEFENSIVE IMPORTS ---
 try:
     from yahooquery import Ticker
     import pandas_ta as ta
-    IMPORT_SUCCESS = True
+    LIB_READY = True
 except ImportError:
-    IMPORT_SUCCESS = False
+    LIB_READY = False
 
-st.set_page_config(page_title="IDX Master Insight Pro", layout="wide")
+st.set_page_config(page_title="IDX Resilience Engine", layout="wide")
 
-# --- 2. THE FAIL-SAFE DATA ENGINE ---
-@st.cache_data(ttl=900) # 15-minute cache to prevent Yahoo IP bans
-def get_idx_data(symbol_str):
+# --- 2. DATA ENGINE WITH BLOCK PROTECTION ---
+@st.cache_data(ttl=600)
+def fetch_idx_data(symbols_str):
+    if not LIB_READY:
+        return "LIBS_MISSING", None
     try:
-        # Format symbols for Indonesia Stock Exchange
-        raw_list = [s.strip().upper() for s in symbol_str.split(',')]
-        symbols = [s + ('' if s.endswith('.JK') else '.JK') for s in raw_list]
+        clean_list = [s.strip().upper() for s in symbols_str.split(',')]
+        tickers = [s + ('' if s.endswith('.JK') else '.JK') for s in clean_list]
         
-        t = Ticker(symbols, asynchronous=True)
-        history = t.history(period="1y")
+        t = Ticker(tickers, asynchronous=True)
+        # Fetching only history first as it's the most stable
+        hist = t.history(period="1y")
         
-        # Check if Yahoo returned an empty response or blocked the request
-        if history is None or (isinstance(history, pd.DataFrame) and history.empty):
-            return None, None
+        if hist is None or (isinstance(hist, pd.DataFrame) and hist.empty):
+            return "YAHOO_BLOCK", None
             
+        # Try to get fundamentals, but don't crash if they fail
         try:
-            # Fetch fundamentals safely
-            modules = t.get_modules(['summaryDetail', 'financialData', 'summaryProfile'])
+            mods = t.get_modules(['financialData'])
         except:
-            modules = {}
+            mods = {}
             
-        return history, modules
-    except Exception:
-        return None, None
+        return hist, mods
+    except Exception as e:
+        return str(e), None
 
-# --- 3. MAIN INTERFACE ---
-st.title("🏛️ IDX Master Insight Pro")
+# --- 3. UI ---
+st.title("🏛️ IDX Resilience Engine")
 
-if not IMPORT_SUCCESS:
-    st.error("🚨 System Error: Required libraries (yahooquery, pandas-ta) are not installed.")
-    st.info("Please update your requirements.txt and reboot the app in Streamlit Cloud.")
+if not LIB_READY:
+    st.error("🚨 System Error: Modules not installed. Check your requirements.txt.")
     st.stop()
 
-# Sidebar Controls
-st.sidebar.header("Control Panel")
-if st.sidebar.button("🔄 Reset Connection"):
-    st.cache_data.clear()
-    st.rerun()
+query = st.sidebar.text_input("Stocks", "BBCA, BMRI, TLKM, ASII")
+if st.sidebar.button("Run Analysis"):
+    with st.spinner("Accessing IDX Data..."):
+        hist_data, modules = fetch_idx_data(query)
 
-user_input = st.sidebar.text_input("Enter IDX Tickers (e.g. BBCA, BMRI, ASII)", "BBCA, BMRI, TLKM, ASII")
-analyze_btn = st.sidebar.button("Run Deep Analysis")
-
-if analyze_btn:
-    with st.spinner("🔍 Scanning Market Data..."):
-        hist, mods = get_idx_data(user_input)
-
-        if hist is None:
-            st.error("🛑 Yahoo Finance Connection Blocked.")
-            st.warning("Yahoo is currently rate-limiting this server. Please wait 5-10 minutes for the block to lift.")
+        if hist_data == "YAHOO_BLOCK":
+            st.warning("⚠️ Yahoo Finance is temporarily blocking this server's IP. Please try again in 10 minutes.")
+        elif isinstance(hist_data, str):
+            st.error(f"Error: {hist_data}")
         else:
-            summary_results = []
-            symbols_present = hist.index.get_level_values(0).unique()
+            results = []
+            # Get unique stocks from the data we actually received
+            found_stocks = hist_data.index.get_level_values(0).unique()
             
-            for sym in symbols_present:
-                # FIX: Remove rows with no price (prevents 'nan' in table)
-                df = hist.loc[sym].copy().dropna(subset=['close'])
-                
-                # Skip if there isn't enough historical data
-                if len(df) < 20:
-                    continue
+            for s in found_stocks:
+                # FIX: Remove rows with no price (fixes 'nan' issue)
+                df = hist_data.loc[s].copy().dropna(subset=['close'])
+                if len(df) < 20: continue
 
-                # FIX: Safeguard against NoneType objects
-                info = {}
-                if isinstance(mods, dict):
-                    raw_info = mods.get(sym, {})
-                    info = raw_info if isinstance(raw_info, dict) else {}
-
-                # Extraction of Fundamentals
-                fin = info.get('financialData', {}) if isinstance(info.get('financialData'), dict) else {}
-                prof = info.get('summaryProfile', {}) if isinstance(info.get('summaryProfile'), dict) else {}
-                
+                # Technical Analysis
                 price = df.iloc[-1]['close']
-                roe = (fin.get('returnOnEquity', 0) or 0) * 100
-                sector = prof.get('sector', 'N/A')
-
-                # Technical Analysis (RSI)
                 df.ta.rsi(append=True)
                 rsi_col = [c for c in df.columns if 'RSI' in str(c)]
-                rsi_val = df.iloc[-1][rsi_col[0]] if rsi_col and pd.notna(df.iloc[-1][rsi_col[0]]) else 50
+                rsi_val = df.iloc[-1][rsi_col[0]] if rsi_col else 50
                 
-                # Logic Strategy
-                if rsi_val < 35:
-                    verdict = "BUY 🚀"
-                elif rsi_val > 70:
-                    verdict = "SELL 📉"
-                else:
-                    verdict = "WAIT ⏳"
-
-                summary_results.append({
-                    "Stock": sym.replace(".JK", ""),
-                    "Sector": sector,
+                results.append({
+                    "Stock": s.replace(".JK", ""),
                     "Price": f"{price:,.0f}",
-                    "RSI (14)": f"{rsi_val:.1f}",
-                    "ROE %": f"{roe:.1f}%",
-                    "Recommendation": verdict,
-                    "Target (+10%)": f"{price * 1.10:,.0f}"
+                    "RSI": f"{rsi_val:.1f}",
+                    "Verdict": "BUY 🚀" if rsi_val < 35 else "WAIT ⏳"
                 })
 
-            if summary_results:
-                st.subheader("📋 Execution Strategy")
-                st.dataframe(pd.DataFrame(summary_results), use_container_width=True, hide_index=True)
+            if results:
+                st.table(pd.DataFrame(results))
             else:
-                st.warning("No valid data found for the selected symbols.")
-
-# --- 4. FOOTER ---
-st.divider()
-st.caption("Data provided by Yahoo Finance. Technical indicators powered by Pandas-TA.")
+                st.info("No valid market data returned.")
