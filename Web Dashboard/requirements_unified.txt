@@ -1,0 +1,21 @@
+# Unified Dependencies for IDX Systems
+# Compatible with Python 3.12 and 3.14
+
+# Core Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Market Data Sources
+yfinance>=0.2.18
+yahooquery>=2.3.0
+
+# Web Framework
+streamlit>=1.28.0
+
+# API & Communications
+requests>=2.31.0
+
+# Environment Management
+python-dotenv>=1.0.0
+
+# Note: No pandas-ta - using manual calculations
