@@ -9,12 +9,16 @@ def calculate_rsi(data, period=14):
     delta = data.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
+    
+    # Handle division by zero
+    rs = gain / loss.replace(0, np.nan)
+    rsi = 100 - (100 / (1 + rs))
+    
+    return rsi.fillna(50)  # Default to neutral RSI
 
 def calculate_sma(data, period=50):
     """Calculate Simple Moving Average"""
-    return data.rolling(window=period).mean()
+    return data.rolling(window=period).mean().fillna(data)
 
 # --- UI CONFIGURATION ---
 st.set_page_config(page_title="IDX Master Trading Terminal", layout="wide")
