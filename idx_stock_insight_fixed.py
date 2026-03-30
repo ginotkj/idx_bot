@@ -24,12 +24,13 @@ def calculate_sma(data, period=50):
 st.set_page_config(page_title="IDX Master Trading Terminal", layout="wide")
 
 # --- 1. SIDEBAR TOOLS ---
-if st.sidebar.button("🔄 Force Refresh Data"):
-    st.cache_data.clear()
-    st.success("Cache Cleared! Running live analysis...")
+#if st.sidebar.button("🔄 Force Refresh Data"):
+st.cache_data.clear()
+st.success("Cache Cleared! Running live analysis...")
 
 top10_btn = st.sidebar.button("🏆 Top 10 Buy Stocks")
 
+st.cache_data.clear()
 # --- 2. ROBUST DATA FETCHING ---
 @st.cache_data(ttl=3600)
 def get_stock_data_pro(symbol_string):
