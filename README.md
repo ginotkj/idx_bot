@@ -4,7 +4,6 @@ Transform your market analysis from simple reporting to intelligent, autonomous 
 
 ## 🚀 What This Agent Does
 
-**Before**: Simple scheduled scripts that just report data  
 **After**: An autonomous analyst that detects anomalies, conducts multi-step research, and provides strategic recommendations without human intervention
 
 ### Key Features
