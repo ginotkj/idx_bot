@@ -3,7 +3,7 @@ name: Autonomous IDX Analyst Agent
 on:
   schedule:
     # Run every 30 minutes during market hours (9:00 AM - 4:00 PM WIB)
-    - cron: '*/30 2-9 * * 1-5'  # UTC hours for WIB 9:00-16:00
+    - cron: '*/5 2-9 * * 1-5'  # UTC hours for WIB 9:00-16:00
     # Run every hour outside market hours
     - cron: '0 * * * *'
   workflow_dispatch:  # Allow manual triggering
