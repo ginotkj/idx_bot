@@ -25,7 +25,10 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        
+
+     - name: Debug UTC time
+       run: date -u  # <-- Menambahkan log UTC untuk memastikan schedule jalan
+       
     - name: Run Autonomous Agent
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
